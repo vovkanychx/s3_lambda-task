@@ -13,18 +13,17 @@ class TaskCdkStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         #create new s3 bucket and src&dest folders in it
-        s3_client = boto3.client('s3')
-        s3_resource = boto3.resource('s3')
+        s3 = boto3.client('s3')
 
         def create_bucket(bucket_name, region=None):
             try:
                 if region is None:
-                    s3_client = boto3.client('s3')
-                    s3_client.create_bucket(Bucket=bucket_name)
+                    s3 = boto3.client('s3')
+                    s3.create_bucket(Bucket=bucket_name)
                 else:
-                    s3_client = boto3.client('s3', region_name=region)
+                    s3 = boto3.client('s3', region_name=region)
                     location = {'LocationConstraint': region}
-                    s3_client.create_bucket(Bucket=bucket_name,
+                    s3.create_bucket(Bucket=bucket_name,
                                             CreateBucketConfiguration=location)
             except ClientError as e:
                 logging.error(e)
@@ -37,9 +36,8 @@ class TaskCdkStack(cdk.Stack):
         
         src_dir_name = "task-directory-source"
         dest_dir_name = "task-directory-destination"
-        s3_client.put_object(Bucket = bucket_name, Key = (src_dir_name+'/'))
-        s3_client.put_object(Bucket = bucket_name, Key = (dest_dir_name+'/'))
-
+        s3.put_object(Bucket = bucket_name, Key = (src_dir_name+'/'))
+        s3.put_object(Bucket = bucket_name, Key = (dest_dir_name+'/'))
 
 #create lambda function
         function = lambda_.Function(self, "TaskLambdaFunction",
@@ -49,5 +47,5 @@ class TaskCdkStack(cdk.Stack):
         )
         
 #send notification to lambda & create notification when object put in bucket
-        notification = s3_notify.LambdaDestination(function)
-        #bucket.add_event_notification(s3.EventType.OBJECT_CREATED_PUT, notification)
+    #    notification = s3_notify.LambdaDestination(function)
+    #    bucket_notifictaion = s3_resource.BucketNotification(bucket_name)
