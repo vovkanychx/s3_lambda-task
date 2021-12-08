@@ -1,51 +1,85 @@
 from aws_cdk import (
      core as cdk,
      aws_s3 as s3,
-     aws_lambda as lambda_,
+     aws_lambda as _lambda,
      aws_s3_notifications as s3_notify,
+     aws_iam as iam
 )
-import os, boto3, logging
-from botocore.client import ClientError
+
+from aws_cdk.custom_resources import (
+    AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId
+)
+import boto3, json
 
 class TaskCdkStack(cdk.Stack):
 
     def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        #create new s3 bucket and src&dest folders in it
-        s3 = boto3.client('s3')
+        task_bucket_name = 'task-buck'
+        src_dir = 'task-src-dir/'
+        dest_dir = 'task-dest-dir/'
+        client = boto3.client('s3')
+        #new s3 bucket
+        s3bucket = s3.Bucket(self, 'TaskBucket',
+                            bucket_name = task_bucket_name,
+                            auto_delete_objects = True,
+                            removal_policy = cdk.RemovalPolicy.DESTROY
+                            )     
 
-        def create_bucket(bucket_name, region=None):
-            try:
-                if region is None:
-                    s3 = boto3.client('s3')
-                    s3.create_bucket(Bucket=bucket_name)
-                else:
-                    s3 = boto3.client('s3', region_name=region)
-                    location = {'LocationConstraint': region}
-                    s3.create_bucket(Bucket=bucket_name,
-                                            CreateBucketConfiguration=location)
-            except ClientError as e:
-                logging.error(e)
-                return False
-            return True
+        #lambda function        
+        lambda_function = _lambda.Function(self, 'TaskLambdaFunction',
+            code = _lambda.AssetCode('./lambda'),
+            handler = 'lambda_handler.main',
+            runtime = _lambda.Runtime.PYTHON_3_9
+            )
 
-        bucket_name = 'task-buck'
-        region = 'eu-central-1'
-        create_bucket(bucket_name, region)
-        
-        src_dir_name = "task-directory-source"
-        dest_dir_name = "task-directory-destination"
-        s3.put_object(Bucket = bucket_name, Key = (src_dir_name+'/'))
-        s3.put_object(Bucket = bucket_name, Key = (dest_dir_name+'/'))
-
-#create lambda function
-        function = lambda_.Function(self, "TaskLambdaFunction",
-                                    runtime = lambda_.Runtime.PYTHON_3_9,
-                                    handler = "lambda_handler.main",
-                                    code = lambda_.Code.from_asset("./lambda")
+        #lambda trigger        
+        s3bucket.add_object_created_notification(
+            s3_notify.LambdaDestination(lambda_function),
+            s3.NotificationKeyFilter(prefix = "task-src-dir")
         )
-        
-#send notification to lambda & create notification when object put in bucket
-    #    notification = s3_notify.LambdaDestination(function)
-    #    bucket_notifictaion = s3_resource.BucketNotification(bucket_name)
+
+        #create directories as put keys
+        AwsCustomResource(self, "DirSrc",
+            on_create = {
+                "service": "S3",
+                "action": "putObject",
+                "parameters": {'Bucket': task_bucket_name,
+                'Key': src_dir
+                },
+                "physical_resource_id": PhysicalResourceId.of(task_bucket_name)
+            },
+            policy = AwsCustomResourcePolicy.from_sdk_calls(resources = AwsCustomResourcePolicy.ANY_RESOURCE)
+        )
+        AwsCustomResource(self, "DirDest",
+            on_create = {
+                "service": "S3",
+                "action": "putObject",
+                "parameters": {'Bucket': task_bucket_name,
+                'Key': dest_dir
+                },
+                "physical_resource_id": PhysicalResourceId.of(task_bucket_name)
+            },
+            policy = AwsCustomResourcePolicy.from_sdk_calls(resources = AwsCustomResourcePolicy.ANY_RESOURCE)
+        )
+
+        #add policy to perform actions 
+        #(i had errors with put_object, copy_object, head_bucket permissions in event logs, that's to avoid it)
+        #cannot put_bucket_policy when deploying for the first time says 'nosuchbucket'
+        # copy_policy = {
+        #     "Version": "2012-10-17",
+        #     "Statement": [
+        #         {   
+        #             "Principal": "*",
+        #             "Effect": "Allow",
+        #             "Action": "*",
+        #             "Resource": [
+        #                 "arn:aws:s3:::task-buck",
+        #                 "arn:aws:s3:::task-buck/*"
+        #             ]
+        #         }
+        #     ]
+        # }
+        # copy_policy = json.dumps(copy_policy)
+        # client.put_bucket_policy(Bucket = task_bucket_name, Policy=copy_policy)
