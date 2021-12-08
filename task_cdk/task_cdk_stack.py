@@ -2,14 +2,12 @@ from aws_cdk import (
      core as cdk,
      aws_s3 as s3,
      aws_lambda as _lambda,
-     aws_s3_notifications as s3_notify,
-     aws_iam as iam
+     aws_s3_notifications as s3_notify
 )
 
 from aws_cdk.custom_resources import (
     AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId
 )
-import boto3, json
 
 class TaskCdkStack(cdk.Stack):
 
@@ -19,7 +17,7 @@ class TaskCdkStack(cdk.Stack):
         task_bucket_name = 'task-buck'
         src_dir = 'task-src-dir/'
         dest_dir = 'task-dest-dir/'
-        client = boto3.client('s3')
+
         #new s3 bucket
         s3bucket = s3.Bucket(self, 'TaskBucket',
                             bucket_name = task_bucket_name,
@@ -63,23 +61,6 @@ class TaskCdkStack(cdk.Stack):
             },
             policy = AwsCustomResourcePolicy.from_sdk_calls(resources = AwsCustomResourcePolicy.ANY_RESOURCE)
         )
-
-        #add policy to perform actions 
-        #(i had errors with put_object, copy_object, head_bucket permissions in event logs, that's to avoid it)
-        #cannot put_bucket_policy when deploying for the first time says 'nosuchbucket'
-        # copy_policy = {
-        #     "Version": "2012-10-17",
-        #     "Statement": [
-        #         {   
-        #             "Principal": "*",
-        #             "Effect": "Allow",
-        #             "Action": "*",
-        #             "Resource": [
-        #                 "arn:aws:s3:::task-buck",
-        #                 "arn:aws:s3:::task-buck/*"
-        #             ]
-        #         }
-        #     ]
-        # }
-        # copy_policy = json.dumps(copy_policy)
-        # client.put_bucket_policy(Bucket = task_bucket_name, Policy=copy_policy)
+        
+        #give lambda permissions to do operations in bucket
+        s3bucket.grant_read_write(lambda_function)
